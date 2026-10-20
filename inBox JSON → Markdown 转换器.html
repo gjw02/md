@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>inBox JSON 笔记转 Markdown</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background:#f4f7fa;
+  color:#222;
+  padding:24px;
+  max-width:1200px;
+  margin:0 auto;
+}
+h1{text-align:center;margin-bottom:24px;color:#1f2937;font-size:26px;}
+.card{
+  background:#fff;
+  border-radius:14px;
+  box-shadow:0 2px 12px rgba(0,0,0,0.08);
+  padding:24px;
+  margin-bottom:20px;
+}
+.drop-area{
+  border:2px dashed #cbd5e1;
+  border-radius:10px;
+  padding:40px 20px;
+  text-align:center;
+  cursor:pointer;
+  transition:0.25s;
+}
+.drop-area.active{
+  border-color:#2563eb;
+  background:#eff6ff;
+}
+.drop-area p{color:#64748b;margin-top:8px;}
+input[type="file"]{display:none;}
+.btn-row{
+  display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;
+}
+button{
+  padding:10px 18px;border:none;border-radius:8px;cursor:pointer;font-size:15px;
+  transition:0.2s;
+}
+.btn-primary{background:#2563eb;color:#fff;}
+.btn-primary:hover{background:#1d4ed8;}
+.btn-success{background:#059669;color:#fff;}
+.btn-success:hover{background:#047857;}
+.btn-outline{background:#fff;border:1px solid #cbd5e1;color:#333;}
+.btn-outline:hover{background:#f8fafc;}
+
+.file-list{margin-top:16px;max-height:240px;overflow:auto;border:1px solid #e2e8f0;border-radius:8px;}
+.file-item{
+  padding:10px 14px;border-bottom:1px solid #f1f5f9;
+  display:flex;justify-content:space-between;align-items:center;
+  cursor:pointer;
+  transition: background-color 0.2s;
+}
+.file-item:hover{background-color:#f8fafc;}
+.file-item.active{background-color:#eff6ff;}
+.file-item:last-child{border-bottom:none;}
+.preview-wrap{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:16px;
+  margin-top:20px;
+}
+@media(max-width:768px){
+  .preview-wrap{grid-template-columns:1fr;}
+}
+.preview-box{
+  border:1px solid #e2e8f0;
+  border-radius:10px;
+  overflow:hidden;
+}
+.preview-header{
+  background:#f8fafc;padding:10px 14px;font-weight:500;border-bottom:1px solid #e2e8f0;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.preview-content{
+  padding:16px;
+  min-height:320px;
+  max-height:520px;
+  overflow:auto;
+}
+.raw-md{white-space:pre-wrap;font-family:Consolas,monospace;font-size:13px;}
+.rendered-md h1{font-size:22px;margin:10px 0;color:#1f2937;}
+.rendered-md h2{font-size:19px;margin:8px 0;color:#1f2937;}
+.rendered-md h3{font-size:17px;margin:6px 0;}
+.rendered-md ul{padding-left:22px;margin:8px 0;}
+.rendered-md p{margin:6px 0;line-height:1.6;}
+.rendered-md a{color:#2563eb;}
+.rendered-md strong{font-weight:600;}
+.status-text{margin-top:12px;color:#475569;font-size:14px;}
+
+/* 全屏按钮 */
+.fs-btn{
+  background:#fff;border:1px solid #cbd5e1;color:#475569;
+  padding:4px 10px;font-size:12px;border-radius:6px;cursor:pointer;
+  transition:0.2s;
+}
+.fs-btn:hover{background:#eff6ff;border-color:#2563eb;color:#2563eb;}
+
+/* 全屏态 */
+.preview-box.fullscreen{
+  position:fixed;inset:0;z-index:9999;
+  border-radius:0;border:none;
+  background:#fff;
+}
+.preview-box.fullscreen .preview-content{
+  max-height:none;height:calc(100vh - 44px);
+}
+</style>
+</head>
+<body>
+<h1>📝 inBox JSON → Markdown 转换器</h1>
+
+<div class="card">
+  <div class="drop-area" id="dropArea">
+    <p>点击或者拖拽放入 inBox 的笔记 json 文件（支持多选批量）</p>
+    <input type="file" id="fileInput" multiple accept=".json"/>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" id="selectBtn">选择文件</button>
+    <button class="btn-success" id="convertBtn">执行转换</button>
+    <button class="btn-outline" id="downloadSingle">下载当前MD</button>
+    <button class="btn-outline" id="clearBtn">清空全部</button>
+  </div>
+
+  <div class="status-text" id="status"></div>
+  <div class="file-list" id="fileList"></div>
+</div>
+
+<div class="card">
+  <div class="preview-wrap">
+    <div class="preview-box" id="rawBox">
+      <div class="preview-header"><span>原始 Markdown 源码</span><button class="fs-btn" data-target="rawBox">⛶ 全屏</button></div>
+      <div class="preview-content raw-md" id="rawPreview"></div>
+    </div>
+    <div class="preview-box" id="renderBox">
+      <div class="preview-header"><span>渲染预览效果</span><button class="fs-btn" data-target="renderBox">⛶ 全屏</button></div>
+      <div class="preview-content rendered-md" id="renderPreview"></div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+const dropArea = document.getElementById('dropArea');
+const fileInput = document.getElementById('fileInput');
+const selectBtn = document.getElementById('selectBtn');
+const convertBtn = document.getElementById('convertBtn');
+const downloadSingle = document.getElementById('downloadSingle');
+const clearBtn = document.getElementById('clearBtn');
+const fileListEl = document.getElementById('fileList');
+const statusEl = document.getElementById('status');
+const rawPreview = document.getElementById('rawPreview');
+const renderPreview = document.getElementById('renderPreview');
+
+let fileQueue = [];
+let currentViewIndex = 0;
+
+// 极简Markdown渲染器（原生实现，无外部依赖）
+function renderMarkdown(md) {
+  if (!md) return '';
+  const lines = md.split('\n');
+  let html = '';
+  let inList = false;
+
+  for (let line of lines) {
+    line = line.trimEnd();
+    if (line.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h3>${escapeHtml(line.slice(4))}</h3>`;
+    } else if (line.startsWith('## ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h2>${escapeHtml(line.slice(3))}</h2>`;
+    } else if (line.startsWith('# ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h1>${escapeHtml(line.slice(2))}</h1>`;
+    } else if (line.startsWith('- ')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += `<li>${inlineFormat(line.slice(2))}</li>`;
+    } else if (line === '') {
+      if (inList) { html += '</ul>'; inList = false; }
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<p>${inlineFormat(line)}</p>`;
+    }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function inlineFormat(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  return html;
+}
+
+// 原生文件下载
+function downloadFile(filename, content) {
+  const blob = new Blob([content], {type: 'text/markdown;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// 拖拽
+dropArea.addEventListener('click',()=>fileInput.click());
+selectBtn.addEventListener('click',()=>fileInput.click());
+
+dropArea.addEventListener('dragover',e=>{e.preventDefault();dropArea.classList.add('active');});
+dropArea.addEventListener('dragleave',()=>dropArea.classList.remove('active'));
+dropArea.addEventListener('drop',e=>{
+  e.preventDefault();
+  dropArea.classList.remove('active');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change',e=>handleFiles(e.target.files));
+
+function handleFiles(files){
+  for(let f of files){
+    if(f.name.toLowerCase().endsWith('.json')){
+      fileQueue.push({file:f,name:f.name});
+    }
+  }
+  renderFileList();
+  setStatus(`已载入 ${fileQueue.length} 个 json 文件`);
+}
+
+function renderFileList(){
+  fileListEl.innerHTML = '';
+  fileQueue.forEach((item,idx)=>{
+    const div = document.createElement('div');
+    div.className = 'file-item';
+    if(idx === currentViewIndex){
+      div.classList.add('active');
+    }
+    div.innerHTML = `
+      <span>${item.name}</span>
+      <span>${item.mdText ? '✅已转换':'⏳待转换'}</span>
+    `;
+    div.onclick = ()=>showPreview(idx);
+    fileListEl.appendChild(div);
+  })
+}
+
+function setStatus(s){statusEl.innerText = s;}
+
+// inBox json 转 md 核心逻辑
+async function parseInBoxJson(file){
+  const text = await file.text();
+  const obj = JSON.parse(text);
+  if(!obj || !obj.content || obj.content.content===undefined){
+    return {isNote:false,md:'',outputName:file.name};
+  }
+  const noteId = obj.id || 'untitled';
+  const title = (obj.content.title||'').trim();
+  const body = (obj.content.content||'').trim();
+
+  let mdLines = [];
+  if(title) mdLines.push(`# ${title}\n`);
+  mdLines.push(body);
+  const md = mdLines.join('\n');
+
+  let outFilename = title? title : noteId;
+  outFilename = outFilename.replace(/[\\\/:*?"<>|]/g,'_');
+  outFilename += '.md';
+  return {isNote:true, md, outputName:outFilename};
+}
+
+convertBtn.onclick = async ()=>{
+  if(!fileQueue.length){setStatus('请先选择json文件');return;}
+  setStatus('正在转换...');
+  for(let item of fileQueue){
+    try{
+      const res = await parseInBoxJson(item.file);
+      item.mdText = res.md;
+      item.outputName = res.outputName;
+      item.isNote = res.isNote;
+    }catch(err){
+      item.mdText = `解析失败: ${err.message}`;
+      item.isNote = false;
+    }
+  }
+  renderFileList();
+  currentViewIndex = 0;
+  showPreview(0);
+  const okCount = fileQueue.filter(x=>x.isNote).length;
+  setStatus(`转换完成：有效笔记 ${okCount} / ${fileQueue.length}，当前查看：${fileQueue[0].name}`);
+}
+
+function showPreview(idx){
+  if(!fileQueue[idx]){
+    rawPreview.innerText = '';
+    renderPreview.innerHTML = '';
+    return;
+  }
+  currentViewIndex = idx;
+  const it = fileQueue[idx];
+  rawPreview.innerText = it.mdText || '(无内容)';
+  renderPreview.innerHTML = renderMarkdown(it.mdText||'');
+  renderFileList();
+  setStatus(`当前查看：${it.name} → 输出文件：${it.outputName}`);
+}
+
+downloadSingle.onclick = ()=>{
+  const it = fileQueue[currentViewIndex];
+  if(!it || !it.mdText){setStatus('没有可下载内容');return;}
+  downloadFile(it.outputName, it.mdText);
+  setStatus(`已下载：${it.outputName}`);
+}
+
+clearBtn.onclick = ()=>{
+  fileQueue = [];
+  fileInput.value = '';
+  renderFileList();
+  rawPreview.innerText='';
+  renderPreview.innerHTML='';
+  setStatus('已清空');
+}
+
+// 全屏切换
+document.querySelectorAll('.fs-btn').forEach(btn=>{
+  btn.onclick = ()=>{
+    const box = document.getElementById(btn.dataset.target);
+    const isFs = box.classList.toggle('fullscreen');
+    btn.textContent = isFs ? '✕ 退出' : '⛶ 全屏';
+  };
+});
+document.addEventListener('keydown',e=>{
+  if(e.key !== 'Escape') return;
+  document.querySelectorAll('.preview-box.fullscreen').forEach(box=>{
+    box.classList.remove('fullscreen');
+    const btn = document.querySelector(`.fs-btn[data-target="${box.id}"]`);
+    if(btn) btn.textContent = '⛶ 全屏';
+  });
+});
+</script>
+</body>
+</html>
